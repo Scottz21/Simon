@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<!--
+  Simon — Accessible, responsive Simon game UI
+  - Three-column layout: Left (controls + stats), Center (board + status + help), Right (leaderboard)
+  - ARIA live regions for status updates and screen-reader output
+  - Keyboard support: Enter to start/end/new, arrow keys mapped to pad colors
+  - All persistent UI (toggles, name, volume, tone) handled by JS via localStorage
+-->
+<html lang="en">
+<head>
+  <!--
+    Charset + viewport for modern/mobile-friendly rendering.
+    Title kept short; styles and scripts are external for caching and separation of concerns.
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simon</title>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<!--
+  Body starts with .labels-on so pad labels are visible by default; the Labels toggle toggles this.
+  (JS toggles the 'labels-on' class on <body>.)
+-->
+<body class="labels-on">
+  <!-- App header: title + small tagline -->
+  <header class="app-header">
+    <h1>Simon</h1>
+    <p class="tagline">Can you top the leaderboard!?</p>
+  </header>
+
+  <!--
+    Main shell uses .layout-3: a responsive grid with 3 columns
+    - Left rail: controls + stats (sticky inside)
+    - Center: Simon board + status pill + help
+    - Right rail: local leaderboard (sticky inside)
+  -->
+  <main class="layout-3">
+    <!-- LEFT: Controls + Stats -->
+    <aside class="col col-left">
+      <div class="sticky">
+        <!-- HUD = Controls card (role=region for landmark navigation) -->
+        <section class="hud" role="region" aria-label="Game controls">
+          <div class="hud-row">
+            <!-- Round indicator; updated by JS; polite live so screen readers hear changes -->
+            <div class="round-display" id="roundText" aria-live="polite" aria-atomic="true">Round 0</div>
+          </div>
+
+          <!-- Name gate: Start is disabled until non-empty name -->
+          <div class="name-row">
+            <label for="nameInput">Name</label>
+            <input id="nameInput" type="text" placeholder="Your name" maxlength="20"/>
+          </div>
+
+          <!-- Primary controls; Reset button currently hidden/disabled (placeholder for future) -->
+          <div class="controls">
+            <button id="startBtn" class="btn" disabled>Start</button>
+            <button id="resetBtn" class="btn btn--ghost" disabled style="display:none">Reset</button>
+          </div>
+
+          <!-- Small dynamic hint text (e.g., "Enter your name to start") -->
+          <div id="hudHint" class="hint small">Enter your name to start</div>
+
+          <!-- Gameplay + UI toggles -->
+          <div class="toggles">
+            <label class="toggle">
+              <input type="checkbox" id="strictToggle"/>
+              <span>Strict</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="soundToggle" checked/>
+              <span>Sound</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="labelsToggle" checked/>
+              <span>Show labels</span>
+            </label>
+          </div>
+
+          <!-- Audio controls: Volume + Tone length preset -->
+          <div class="av-row" role="group" aria-label="Audio controls">
+            <div class="vol">
+              <label for="volSlider">Volume</label>
+              <input id="volSlider" type="range" min="0" max="100" step="1" value="30"/>
+            </div>
+            <!--
+              Tone preset impacts:
+              - press duration (how long user pad stays lit/sounding)
+              - step multiplier (affects AI playback pacing)
+            -->
+            <fieldset class="tone" aria-label="Tone length">
+              <legend>Tone</legend>
+              <label><input type="radio" name="tonePreset" value="short"> Short</label>
+              <label><input type="radio" name="tonePreset" value="medium" checked> Medium</label>
+              <label><input type="radio" name="tonePreset" value="long"> Long</label>
+            </fieldset>
+          </div>
+
+          <!-- Informational note about adaptive speed -->
+          <p class="mini">Playback speed adapts to your recent accuracy.</p>
+
+          <!-- Toggle to show/hide the stats card (persisted) -->
+          <label class="toggle toggle--below">
+            <input type="checkbox" id="statsToggle" checked/>
+            <span>Show stats</span>
+          </label>
+        </section>
+
+        <!-- Stats card: Accuracy meter + Reaction sparkline -->
+        <section class="card stats-card" id="statsCard" role="region" aria-label="Player stats">
+          <div class="card-head"><h3>Stats</h3></div>
+          <div class="stats-grid">
+            <!-- Accuracy meter (progressbar with ARIA semantics) -->
+            <div class="meter" aria-label="Accuracy meter">
+              <div class="meter-head">
+                <span id="accLabel">Accuracy</span>
+                <span id="accValue">—</span>
+              </div>
+              <div class="meter-bar" id="accBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="meter-fill" id="accFill" style="width:0%"></div>
+              </div>
+              <div class="meter-foot small" id="accFoot">Based on last 0 inputs</div>
+            </div>
+
+            <!-- Reaction time: average label + sparkline canvas + footnote -->
+            <div class="meter" aria-label="Reaction time meter">
+              <div class="meter-head">
+                <span>Reaction</span>
+                <span id="rtAvg">—</span>
+              </div>
+              <canvas id="rtSpark" width="240" height="32" aria-hidden="true"></canvas>
+              <div class="meter-foot small" id="rtFoot">Last 0 rounds</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <!-- CENTER: Board + Status + Help -->
+    <section class="col col-center">
+      <!--
+        Simon game board
+        - Four quadrant buttons (.pad) with data-index 0..3
+        - Keyboard arrows are visually shown via .pad-key spans (hidden from SR)
+        - Central hub (.hub) contains the LED (#hubLed) animated by JS classes
+      -->
+      <div class="board" aria-label="Simon game board">
+        <button class="pad pad--green"  data-index="0" aria-label="Green pad"  aria-pressed="false">
+          <span class="pad-key" aria-hidden="true">↑</span>
+        </button>
+        <button class="pad pad--red"    data-index="1" aria-label="Red pad"    aria-pressed="false">
+          <span class="pad-key" aria-hidden="true">→</span>
+        </button>
+        <button class="pad pad--yellow" data-index="2" aria-label="Yellow pad" aria-pressed="false">
+          <span class="pad-key" aria-hidden="true">↓</span>
+        </button>
+        <button class="pad pad--blue"   data-index="3" aria-label="Blue pad"   aria-pressed="false">
+          <span class="pad-key" aria-hidden="true">←</span>
+        </button>
+
+        <!-- Center hub with LED (decorative; aria-hidden) -->
+        <div class="hub" aria-hidden="true">
+          <div class="hub-inner">
+            <div class="hub-led" id="hubLed"></div>
+            <div class="hub-mark">SIMON</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center status pill; JS toggles [hidden] and updates text (aria-live polite) -->
+      <div id="statusText" class="status-pill" aria-live="polite" aria-atomic="true" hidden></div>
+
+      <!-- Help section explains controls and accessibility tips -->
+      <section class="help">
+        <h2>How to play</h2>
+        <ul>
+          <li>Repeat the sequence using click/tap or the keyboard.</li>
+          <li><kbd>↑</kbd> Green, <kbd>→</kbd> Red, <kbd>↓</kbd> Yellow, <kbd>←</kbd> Blue</li>
+          <li><kbd>Enter</kbd> = Start / End Game / New Game.</li>
+        </ul>
+        <p class="small">Tip: Try strict mode for more of a challenge! Strict mode ends the run on a mistake.</p>
+      </section>
+    </section>
+
+    <!-- RIGHT: Leaderboard -->
+    <aside class="col col-right">
+      <div class="sticky">
+        <!-- Local-only leaderboard; JS persists to localStorage when available -->
+        <section class="card leaderboard" role="region" aria-label="Local leaderboard">
+          <div class="card-head">
+            <h3>Leaderboard</h3>
+            <button id="clearLbBtn" class="btn btn--tiny btn--ghost" title="Clear leaderboard">Clear</button>
+          </div>
+          <!-- Columns: rank, name, score; <ol> populated dynamically by JS -->
+          <div class="lb-headers small"><span>#</span><span>Name</span><span>Score</span></div>
+          <ol id="lbList" class="lb-list" aria-live="polite" aria-atomic="true"></ol>
+          <p class="small">Scores are saved on this device.</p>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="app-footer">
+    <!-- Screen reader live region for non-visual status bursts (assertive for critical updates) -->
+    <div class="sr-only" id="srLive" aria-live="assertive" aria-atomic="true"></div>
+  </footer>
+
+  <!-- The game logic; attaches event listeners and manages audio/state/leaderboard -->
+  <script src="./main.js"></script>
+</body>
+</html>
