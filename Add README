@@ -1,0 +1,271 @@
+# Simon — Modern, Accessible Simon Game
+
+A polished, responsive take on the classic Simon memory game. Built with vanilla HTML/CSS/JS, it features a three-column layout, adaptive pacing, keyboard controls, audio tones via Web Audio, local leaderboard, and thoughtful accessibility touches.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Demo & Screenshots](#demo--screenshots)
+- [Getting Started](#getting-started)
+- [How to Play](#how-to-play)
+- [Keyboard & Accessibility](#keyboard--accessibility)
+- [Project Structure](#project-structure)
+- [Architecture Overview](#architecture-overview)
+- [Pacing & Audio](#pacing--audio)
+- [Stats & Leaderboard](#stats--leaderboard)
+- [Theming & CSS Tokens](#theming--css-tokens)
+- [Browser Support](#browser-support)
+- [Extending & Configuration](#extending--configuration)
+- [FAQ](#faq)
+- [License](#license)
+
+---
+
+## Features
+
+- **Three-column layout**:  
+  Left: controls + stats · Center: board + status + help · Right: local leaderboard.
+- **Name gate & flow**:  
+  Start is enabled once a name is entered. Single button cycles **Start → End Game → New Game**.
+- **Strict mode**:  
+  One mistake ends the run.
+- **Sound & tone presets**:  
+  Web Audio beeps (sine/square). Short/Medium/Long tone lengths and volume slider.
+- **Adaptive pacing**:  
+  Playback speed tightens by round and recent accuracy (higher accuracy → faster).
+- **Visual feedback**:  
+  Center status pill; hub LED with **breathing** during playback and **blink** on pad light; pad active state.
+- **Stats**:  
+  Accuracy meter (sliding window of recent inputs) and **reaction time sparkline** (first input each round).
+- **Local leaderboard**:  
+  Sorted by round → accuracy → recency. **Updated only when a run ends**, persisted via `localStorage`.
+- **Accessibility**:  
+  ARIA live regions, keyboard controls, visible focus, **Reduce motion** support, screen reader utilities.
+- **Responsive & resilient UI**:  
+  Container queries with graceful fallbacks, glassy cards with `backdrop-filter` fallback.
+
+---
+
+## Demo & Screenshots
+
+Open `index.html` in a browser (see [Getting Started](#getting-started)).  
+_Optional_: serve via a small local server for consistent file URLs.
+
+---
+
+## Getting Started
+
+### Run locally
+
+1. **Download/clone** the project.
+2. Open `index.html` directly in a modern browser  
+   _or_ serve the folder:
+
+```bash
+# using Python (3.x)
+python -m http.server 5173
+
+# using Node's http-server (install once)
+npm i -g http-server
+http-server -p 5173
+```
+
+Then visit `http://localhost:5173`.
+
+No build step is required.
+
+---
+
+## How to Play
+
+1. Enter a **name** on the left panel (Start enables).
+2. Click **Start**. Watch/listen to the sequence.
+3. Repeat the sequence using **mouse/touch** or **keyboard arrows**:
+   - ↑ Green, → Red, ↓ Yellow, ← Blue
+4. Toggle **Strict** to end the run on first mistake.
+5. Adjust **Volume** and **Tone** to taste.
+6. When done, click **End Game** (or make a mistake in Strict). Your score is recorded.
+
+**Tip:** Playback speed adapts to your recent accuracy—keep it clean to go faster.
+
+---
+
+## Keyboard & Accessibility
+
+- **Enter**: Start / End Game / New Game (when not typing in the name field)
+- **Arrows**: ↑ Green · → Red · ↓ Yellow · ← Blue
+- **Focus**: Pads show visible focus rings; buttons use accessible outlines.
+- **Live regions**:
+  - Center **status pill** (`aria-live="polite"`)
+  - Hidden **sr-only** region in footer (`aria-live="assertive"`) for important updates
+- **ARIA**:
+  - Leaderboard and cards use `role="region"` with labels
+  - Accuracy meter uses `role="progressbar"` with `aria-valuenow/min/max`
+- **Reduce motion**: Honors `prefers-reduced-motion: reduce` to disable non-essential animations.
+
+---
+
+## Project Structure
+
+```
+/
+├─ index.html       # Markup for layout, board, controls, leaderboard
+├─ styles.css       # Theming, layout (grid), board, cards, leaderboard, responsiveness
+└─ main.js          # Game logic, audio, state machine, stats, leaderboard persistence
+```
+
+---
+
+## Architecture Overview
+
+### UI Layout
+
+- **Left (HUD)**: Round display, name input (gates Start), Start/End/New button, toggles (Strict/Sound/Labels), volume slider, tone preset radios, optional stats toggle.
+- **Center**: 4-pad board with a central **hub LED**; status pill beneath; “How to play” help panel.
+- **Right**: Local leaderboard card with clear button.
+
+### State Machine (`main.js`)
+
+`state.mode`: `'idle' → 'playing' → 'gameending' → 'gameover'`
+
+Other key fields:
+- `sequence[]`: Generated pad indices (0..3)
+- `accepting`: Whether player input is accepted
+- `inputIndex`: Current position in expected sequence
+- `round`, `completedRounds`
+- **Accuracy**: `recent[]` sliding window, `runInputs`, `runCorrect`
+- **Reaction times**: `rts[]` for sparkline (first input each round)
+
+**Flow:**
+- **Start**: clears counters, sets `mode='playing'`, shows “Get ready…”, then `nextRound()`.
+- **Round**: push random step, `showSequence()`, enable pads, gather inputs, validate, advance or retry/finish.
+- **End**: `finalizeRun()` computes final stats, persists score (see Leaderboard), sets `mode='gameover'`.
+
+---
+
+## Pacing & Audio
+
+### Adaptive Pacing
+
+`stepDuration(round)` computes playback speed from:
+- **Base & round factor**: faster each round
+- **Recent accuracy bonus**: accuracy > 60% grants extra speed
+- **Tone preset multiplier**: short/medium/long subtly shifts feel
+
+Key constants:
+- `DELAY_BEFORE_SHOW_SEQUENCE = 450ms`
+- `DELAY_AFTER_ROUND_COMPLETE = 650ms`
+
+### Tone Presets & Web Audio
+
+- Frequencies (index → color):  
+  `0: 329.63 (Green)`, `1: 261.63 (Red)`, `2: 220.0 (Yellow)`, `3: 164.81 (Blue)`
+- **Play tone**: Sine wave with quick attack/release per step or press.
+- **Error beep**: Square wave at ~110 Hz.
+- **Master volume**: Controlled via slider (0–100 → `GainNode` 0.0–1.0).
+
+---
+
+## Stats & Leaderboard
+
+### Accuracy
+
+- Sliding window (`recentWindow = 20`) of last inputs (1/0)
+- UI: percentage value, bar fill, and “Based on last N inputs”
+
+### Reaction Sparkline
+
+- Captures **first input reaction time** each round (`rtWindow = 24`)
+- Canvas sparkline with average guide, min/max in footer
+
+### Leaderboard
+
+- **Storage key**: `simon_leaderboard_v5`
+- **Sorting**: Round ↓, Accuracy ↓, Time ↓
+- **Persistence**: `localStorage` when available; in-memory fallback otherwise
+- **Rendering**: Top 10, with rank medals for 1–3, and “new” highlight on save
+- **Clear**: “Clear” button removes stored scores after confirmation
+
+> Privacy: Scores and settings never leave the device.
+
+---
+
+## Theming & CSS Tokens
+
+Defined in `:root` (dark/light aware):
+
+```css
+--bg, --panel, --panel-2, --text, --muted, --accent, --ring, --shadow
+--pad-size, --board-size, --divider, --rim, --active-brighten
+```
+
+Notable UI techniques:
+- **Glassy cards** using `backdrop-filter` with a **graceful fallback**
+- **Container queries** (`container-type: inline-size`) to adapt the **leaderboard** to its card’s width
+- **Reduced motion** handling and **focus-visible** outlines
+- **Labels toggle**: `.labels-on` on `<body>` reveals big pad labels/arrows
+
+---
+
+## Browser Support
+
+- Modern evergreen browsers (Chromium, Firefox, Safari).
+- **Container queries**: Used for leaderboard responsiveness; a media query fallback is provided for older browsers.
+- **backdrop-filter**: Nice-to-have; cards fall back to solid backgrounds when unsupported.
+- **Web Audio API**: Broadly supported; the app handles suspended contexts (autoplay policies).
+
+---
+
+## Extending & Configuration
+
+### Tweak gameplay pacing
+
+In `main.js`:
+- `DELAY_BEFORE_SHOW_SEQUENCE`, `DELAY_AFTER_ROUND_COMPLETE`
+- `PRESETS` (`press` duration, `stepMul`)
+- `stepDuration(round)` formula (base, min, round factor, accuracy bonus)
+
+### Customize appearance
+
+In `styles.css`:
+- Update `:root` tokens to brand the app
+- Adjust board geometry (`--pad-size`, `--board-size`, `--divider`, `--rim`)
+- Pad colors (`.pad--green|red|yellow|blue`) and active effects
+
+### Persistent preferences
+
+LocalStorage keys:
+- `simon_name`, `simon_tone`, `simon_vol`
+- `simon_labels` (show labels)
+- `simon_stats_show` (stats card visibility)
+- `simon_leaderboard_v5` (scores)
+
+---
+
+## FAQ
+
+**Q: Why does Start stay disabled?**  
+A: Enter a non-empty **name** in the left panel (name gate).
+
+**Q: Can I play silently?**  
+A: Yes—toggle **Sound** off. Visual states and LED still provide feedback.
+
+**Q: What does Strict do?**  
+A: One mistake ends the run; the score saves immediately.
+
+**Q: My browser blocked audio.**  
+A: Interact (click/tap) once and the app resumes the audio context automatically.
+
+---
+
+## License
+
+Specify your license of choice here (e.g., MIT).  
+
+---
+
+### Credits
+
+Built with vanilla HTML/CSS/JS. Frequencies chosen to map distinct tones to the four pads. UI inspired by modern glassmorphism and dashboard patterns, with accessibility as a first-class concern.
